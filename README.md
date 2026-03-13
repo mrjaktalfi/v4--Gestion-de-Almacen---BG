@@ -1,188 +1,71 @@
 # Sistema de Gestión de Inventario - Believe Group
 
-## 🛠️ Firmware ESP32 (Impresora Térmica) - Corrección de Profundidad JSON
+## 🛠️ Firmware ESP32 (Impresora Térmica) - Versión PocketBase
 
-Carga este código. Se ha añadido `DeserializationOption::NestingLimit(20)` para poder leer los datos altamente estructurados de Firestore.
+El firmware del ESP32 ha sido actualizado para conectarse a la nueva API de **PocketBase** en lugar de Firebase. Esto hace que el código sea más ligero, rápido y no dependa de librerías de terceros pesadas.
+
+El código fuente completo se encuentra en el archivo `firmware_esp32.ino`.
+
+### Requisitos Previos (Arduino IDE)
+
+1. **Gestor de Tarjetas (ESP32):**
+   - Asegúrate de tener instalada la versión **`2.0.17`** (o cualquier 2.0.x) del paquete "esp32 by Espressif Systems". 
+   - *Nota:* La versión 3.x elimina funciones que la librería de la pantalla necesita, causando errores de compilación (`gpio_input_get`).
+
+2. **Librerías Necesarias:**
+   - `ArduinoJson` (de Benoit Blanchon)
+   - `TFT_eSPI` (de Bodmer)
+
+### Configuración de la Pantalla (TFT_eSPI)
+
+Para la placa **ESP32-2432S028** (Cheap Yellow Display sin táctil resistivo, controlador ST7789), debes configurar la librería `TFT_eSPI` exactamente así:
+
+1. Ve a `Documentos/Arduino/libraries/TFT_eSPI/User_Setup_Select.h` y asegúrate de que la línea 22 esté descomentada:
+   ```cpp
+   #include <User_Setup.h>
+   ```
+   *(Asegúrate de que TODAS las demás líneas `#include <User_Setups/...` estén comentadas).*
+
+2. Abre `Documentos/Arduino/libraries/TFT_eSPI/User_Setup.h`, borra todo su contenido y pega esto:
 
 ```cpp
-#include <Arduino.h>
-#include <WiFi.h>
-#include <Firebase_ESP_Client.h>
-#include <ArduinoJson.h>
-#include <TFT_eSPI.h> 
-#include <time.h>
+// --- CONFIGURACIÓN PARA ESP32-2432S028 (ST7789) ---
 
-// --- CONFIGURACIÓN DE RED ---
-#define WIFI_SSID "Bombotemplo"
-#define WIFI_PASSWORD "bombotemplo9"
+#define USER_SETUP_INFO "CYD_2432S028_V2"
 
-// --- CONFIGURACIÓN DE FIREBASE ---
-#define API_KEY "AIzaSyDEOPMTb5ofRA5ax9qwymxb2cugvY5KKnI"
-#define FIREBASE_PROJECT_ID "prueba-64ca6"
-#define FIREBASE_URL "https://prueba-64ca6-default-rtdb.firebaseio.com" 
+#define ST7789_DRIVER
 
-// --- CONFIGURACIÓN DE IMPRESORA ---
-const char* printerIP = "192.168.123.100"; 
-const int printerPort = 9100;
+#define TFT_WIDTH  240
+#define TFT_HEIGHT 320
 
-TFT_eSPI tft = TFT_eSPI(); 
-FirebaseData fbdo;
-FirebaseAuth auth;
-FirebaseConfig config;
+// Pines SPI (Variante 2 - Muy común en placas recientes)
+#define TFT_MISO 12
+#define TFT_MOSI 13
+#define TFT_SCLK 14
+#define TFT_CS   15
+#define TFT_DC    2
+#define TFT_RST  -1  
+#define TFT_BL   21
 
-unsigned long lastCheck = 0;
-const unsigned long checkInterval = 30000; 
+// #define TFT_INVERSION_ON // Descomentar si los colores se ven invertidos
 
-void showStatus(String msg, uint32_t color = TFT_WHITE) {
-  tft.fillRect(0, 40, 240, 30, TFT_BLACK);
-  tft.setTextColor(color);
-  tft.setTextSize(1);
-  tft.setTextDatum(ML_DATUM);
-  tft.drawString(msg, 10, 55);
-  Serial.println(">>> " + msg);
-}
+#define LOAD_GLCD
+#define LOAD_FONT2
+#define LOAD_FONT4
+#define SMOOTH_FONT
 
-bool printToThermal(String venue, String type, String idShort, JsonArray items) {
-  WiFiClient client;
-  Serial.println("Conectando a impresora IP: " + String(printerIP));
-  
-  if (!client.connect(printerIP, printerPort)) {
-    Serial.println("❌ ERROR: No se puede conectar a la impresora.");
-    return false;
-  }
-  
-  Serial.println("✅ Impresora conectada. Imprimiendo...");
-  client.write(0x1B); client.write(0x40); // Inicializar ESC/POS
-  
-  client.println("BELIEVE GROUP");
-  client.println("--------------------------------");
-  client.println("LOCAL: " + venue);
-  client.println("TIPO:  " + type);
-  client.println("ID:    #" + idShort);
-  client.println("--------------------------------");
-  for (JsonObject item : items) {
-    client.println(item["qty"].as<String>() + " x " + item["name"].as<String>() + " [ ]");
-  }
-  client.println("\n--------------------------------");
-  client.println("Firma Almacen:");
-  client.println("\n\n\n\n");
-  
-  // Comando de corte
-  client.write(0x1D); client.write(0x56); client.write(0x41); client.write(0x10); 
-  
-  client.stop();
-  return true;
-}
-
-void setup() {
-  Serial.begin(115200);
-  delay(1000);
-  Serial.println("\n\n--- SISTEMA BELIEVE GROUP ---");
-  
-  tft.init();
-  tft.setRotation(0); 
-  tft.fillScreen(TFT_BLACK);
-  tft.fillRect(0, 0, 240, 40, TFT_PURPLE);
-  tft.setTextColor(TFT_WHITE);
-  tft.drawString("BELIEVE GROUP", 40, 15, 2);
-  
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  showStatus("WiFi Conectado", TFT_GREEN);
-
-  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-  
-  config.api_key = API_KEY;
-  config.database_url = FIREBASE_URL;
-
-  if (Firebase.signUp(&config, &auth, "", "")) {
-    Serial.println("Auth: Registro inicial OK");
-  }
-
-  Firebase.begin(&config, &auth);
-  Firebase.reconnectWiFi(true);
-}
-
-void loop() {
-  if (!Firebase.ready()) return;
-
-  if (millis() - lastCheck > checkInterval) {
-    lastCheck = millis();
-    Serial.println("\nBuscando tickets en la nube...");
-
-    // Obtenemos solo los últimos 5 documentos para ahorrar memoria
-    if (Firebase.Firestore.listDocuments(&fbdo, FIREBASE_PROJECT_ID, "(default)", "print_queue", 5, "", "", "", false)) {
-      String payload = fbdo.payload();
-      
-      // Aumentamos el tamaño y sobre todo el NestingLimit
-      DynamicJsonDocument doc(25000); 
-      DeserializationError error = deserializeJson(doc, payload, DeserializationOption::NestingLimit(20));
-
-      if (error == DeserializationError::Ok) {
-        JsonArray documents = doc["documents"].as<JsonArray>();
-        
-        if (documents.isNull() || documents.size() == 0) {
-          Serial.println("Cola vacia.");
-        } else {
-          for (JsonObject v : documents) {
-            JsonObject fields = v["fields"];
-            if (!fields.containsKey("status")) continue;
-            
-            String status = fields["status"]["stringValue"].as<String>();
-
-            if (status == "pending") {
-              String fullPath = v["name"].as<String>();
-              String docId = fullPath.substring(fullPath.lastIndexOf('/') + 1);
-              String venue = fields["venue"]["stringValue"].as<String>();
-              String idShort = fields["orderIdShort"]["stringValue"].as<String>();
-              String type = fields["type"]["stringValue"].as<String>();
-              
-              Serial.println("Procesando Ticket: #" + idShort);
-              
-              JsonArray itemsArray = fields["items"]["arrayValue"]["values"].as<JsonArray>();
-              DynamicJsonDocument itemsDoc(4000);
-              JsonArray simpleItems = itemsDoc.to<JsonArray>();
-              
-              for(JsonObject it : itemsArray) {
-                 JsonObject obj = simpleItems.add<JsonObject>();
-                 JsonObject f = it["mapValue"]["fields"];
-                 
-                 // Robustez al leer la cantidad (si es integerValue o stringValue)
-                 if (f["qty"].containsKey("integerValue")) {
-                    obj["qty"] = f["qty"]["integerValue"].as<String>();
-                 } else {
-                    obj["qty"] = f["qty"]["stringValue"].as<String>();
-                 }
-                 obj["name"] = f["name"]["stringValue"].as<String>();
-              }
-
-              showStatus("Imprimiendo #" + idShort, TFT_YELLOW);
-
-              if (printToThermal(venue, type, idShort, simpleItems)) {
-                 FirebaseJson content;
-                 content.set("fields/status/stringValue", "printed");
-                 String docPath = "print_queue/" + docId;
-                 // Marcamos como impreso en la nube para no repetirlo
-                 if(Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "(default)", docPath.c_str(), content.raw(), "status")) {
-                    showStatus("Ticket #" + idShort + " OK", TFT_GREEN);
-                 }
-              } else {
-                 showStatus("ERROR IMPRESORA", TFT_RED);
-              }
-            }
-          }
-        }
-      } else {
-        Serial.print("Error Deserializacion: ");
-        Serial.println(error.c_str());
-      }
-    } else {
-      Serial.print("Error Firestore: ");
-      Serial.println(fbdo.errorReason());
-    }
-  }
-}
+#define SPI_FREQUENCY  40000000
 ```
+
+### Configuración de Red e Impresora
+
+Antes de subir el código `firmware_esp32.ino`, asegúrate de modificar las siguientes variables en la parte superior del archivo:
+
+```cpp
+#define WIFI_SSID "TU_WIFI_AQUI"
+#define WIFI_PASSWORD "TU_PASSWORD_AQUI"
+
+const char* printerIP = "192.168.1.100"; // IP de tu impresora térmica
+```
+
+*Nota:* Asegúrate de que la impresora térmica y el ESP32 estén en el mismo rango de red (ej. `192.168.1.X`). Si la impresora tiene una IP diferente de fábrica, deberás cambiar la IP de la impresora usando su herramienta de configuración (Ethernet Setting Tool) o ajustar el rango de tu router.
