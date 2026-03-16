@@ -61,9 +61,9 @@ export const TrackerView: React.FC<TrackerViewProps> = ({ products }) => {
     setSelectedId('');
   };
 
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return 'Fecha desconocida';
-    const date = new Date(dateString);
+  const formatDate = (dateValue?: string | number) => {
+    if (!dateValue) return 'Fecha desconocida';
+    const date = new Date(dateValue);
     return new Intl.DateTimeFormat('es-ES', {
       day: '2-digit',
       month: 'short',
@@ -199,7 +199,7 @@ export const TrackerView: React.FC<TrackerViewProps> = ({ products }) => {
                   </div>
                   <div className="flex items-center text-sm text-gray-500 dark:text-gray-400">
                     <Calendar size={14} className="mr-1" />
-                    {formatDate(order.createdAt)}
+                    {formatDate((order as any).timestamp)}
                   </div>
                 </div>
                 
@@ -225,7 +225,7 @@ export const TrackerView: React.FC<TrackerViewProps> = ({ products }) => {
                             ) : (
                               <ArrowDownRight size={14} className="text-green-500" />
                             )}
-                            {item.qty} un.
+                            {item.quantity} un.
                           </div>
                         </li>
                       );

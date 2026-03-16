@@ -500,9 +500,15 @@ export const processOrder = async (orderId: string, staffId: string): Promise<vo
 
 export const addPrintJob = async (order: Order, settings: AppSettings): Promise<string> => {
   try {
+    // Formatear la fecha actual (ej. "15/03/2026 14:30")
+    const now = new Date();
+    const dateString = now.toLocaleDateString('es-ES') + ' ' + now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+
     const printJob = {
       orderId: order.id,
-      venueName: order.venueName || 'Desconocido',
+      // INYECCIÓN DE FECHA: Añadimos un salto de línea (\n) y la fecha al nombre del local.
+      // Así el ESP32/ESP8266 lo imprimirá en la siguiente línea sin tener que cambiar su código.
+      venueName: `${order.venueName || 'Desconocido'}\nFECHA:  ${dateString}`,
       status: 'pending',
       // type: order.type, // Removed as it might be causing creation failure if field doesn't exist
       items: JSON.stringify(order.items.map(i => ({ qty: i.quantity, name: i.productName })))
